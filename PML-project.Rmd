@@ -1,0 +1,206 @@
+---
+title: "Practical ML - Course Project"
+author: "Miguel Ángel García"
+date: "2016/01/30"
+output: html_document
+---
+
+# Synopsis #
+Despite the popularization of personal devices that collect a large amount of data about personal activity, it's uncommon the use of the data to quantify *how well* is the activity do.
+
+This project is about to analyze data from acelerometers on the belt, forearm, arm and dumbell of 6 participants and predict the manner in which they did a barbell lift (correctly or incorrectly).
+
+# Data Processing #
+For the purpose of this analyses, we'll use the [Weight Lifting Exercises Dataset](http://groupware.les.inf.puc-rio.br/har), which is a dataset taking from the Groupware@LES Group of the PUC-Rio University.
+
+```{r, cache= TRUE, results= 'hide'}
+## First, we need to establish the locale sets to US English to avoid problems on load the data
+Sys.setlocale("LC_TIME", "English")
+
+## We create the data directory and download the data on it
+dir.create("Data", showWarnings = FALSE)
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "Data/pml-training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "Data/pml-testing.csv")
+
+## Now, we can read the data
+training <- read.csv("Data/pml-training.csv")
+testing <- read.csv("Data/pml-testing.csv")
+```
+
+# Exploratory Data Analysis #
+Now, we have the Weight Lifting Exercises Dataset loaded, so we'll start doing some EDA to have the first vision on the data.
+
+```{r}
+str(training)
+```
+We noticed that there are 160 variables and 19,622 observations on the training set. The `classe` column is the outcome with 5 levels: A, B, C, D and E.
+
+## Cleaning Data ##
+The first seven columns (from `X` to `num_window`) contains data not related with gyros and accelerometers, so we must remove to avoid bad classification.
+
+There are many missing values set as "" or "#DIV/0!", so the first task to do is to clear them and transform to NA values. By the way, many numeric values are stored as strings, so we'll needed to transform them too.
+
+```{r, results= 'hide'}
+# We remove the first 7 columns
+training <- training[, -(1:7)]
+testing <- testing[, -(1:7)]
+
+# Remove the NA values
+training[(training == "") | (training == "#DIV/0!")] <- NA
+testing[(testing == "") | (testing == "#DIV/0!")] <- NA
+
+# Convert columns to numeric values
+training <- transform(training, kurtosis_roll_belt = as.numeric(kurtosis_roll_belt),
+          kurtosis_picth_belt = as.numeric(kurtosis_picth_belt),
+          kurtosis_yaw_belt = as.numeric(kurtosis_yaw_belt),
+          skewness_roll_belt = as.numeric(skewness_roll_belt),
+          skewness_roll_belt.1 = as.numeric(skewness_roll_belt.1),
+          skewness_yaw_belt = as.numeric(skewness_yaw_belt),
+          max_yaw_belt = as.numeric(max_yaw_belt),
+          min_yaw_belt = as.numeric(min_yaw_belt),
+          amplitude_yaw_belt = as.numeric(amplitude_yaw_belt),
+          kurtosis_roll_arm = as.numeric(kurtosis_roll_arm),
+          kurtosis_picth_arm = as.numeric(kurtosis_picth_arm),
+          kurtosis_yaw_arm = as.numeric(kurtosis_yaw_arm),
+          skewness_roll_arm = as.numeric(skewness_roll_arm),
+          skewness_pitch_arm = as.numeric(skewness_pitch_arm),
+          skewness_yaw_arm = as.numeric(skewness_yaw_arm),
+          kurtosis_roll_dumbbell = as.numeric(kurtosis_roll_dumbbell),
+          kurtosis_picth_dumbbell = as.numeric(kurtosis_picth_dumbbell),
+          kurtosis_yaw_dumbbell = as.numeric(kurtosis_yaw_dumbbell),
+          skewness_roll_dumbbell = as.numeric(skewness_roll_dumbbell),
+          skewness_pitch_dumbbell = as.numeric(skewness_pitch_dumbbell),
+          skewness_yaw_dumbbell = as.numeric(skewness_yaw_dumbbell),
+          max_yaw_dumbbell = as.numeric(max_yaw_dumbbell),
+          min_yaw_dumbbell = as.numeric(min_yaw_dumbbell))
+testing <- transform(testing, kurtosis_roll_belt = as.numeric(kurtosis_roll_belt),
+          kurtosis_picth_belt = as.numeric(kurtosis_picth_belt),
+          kurtosis_yaw_belt = as.numeric(kurtosis_yaw_belt),
+          skewness_roll_belt = as.numeric(skewness_roll_belt),
+          skewness_roll_belt.1 = as.numeric(skewness_roll_belt.1),
+          skewness_yaw_belt = as.numeric(skewness_yaw_belt),
+          max_yaw_belt = as.numeric(max_yaw_belt),
+          min_yaw_belt = as.numeric(min_yaw_belt),
+          amplitude_yaw_belt = as.numeric(amplitude_yaw_belt),
+          kurtosis_roll_arm = as.numeric(kurtosis_roll_arm),
+          kurtosis_picth_arm = as.numeric(kurtosis_picth_arm),
+          kurtosis_yaw_arm = as.numeric(kurtosis_yaw_arm),
+          skewness_roll_arm = as.numeric(skewness_roll_arm),
+          skewness_pitch_arm = as.numeric(skewness_pitch_arm),
+          skewness_yaw_arm = as.numeric(skewness_yaw_arm),
+          kurtosis_roll_dumbbell = as.numeric(kurtosis_roll_dumbbell),
+          kurtosis_picth_dumbbell = as.numeric(kurtosis_picth_dumbbell),
+          kurtosis_yaw_dumbbell = as.numeric(kurtosis_yaw_dumbbell),
+          skewness_roll_dumbbell = as.numeric(skewness_roll_dumbbell),
+          skewness_pitch_dumbbell = as.numeric(skewness_pitch_dumbbell),
+          skewness_yaw_dumbbell = as.numeric(skewness_yaw_dumbbell),
+          max_yaw_dumbbell = as.numeric(max_yaw_dumbbell),
+          min_yaw_dumbbell = as.numeric(min_yaw_dumbbell))
+```
+
+We've need to check if there are empty columns or columns with few valid rows on the training set and, if they exist, remove them. We've choose to remove the columns with less than 30% of valid data (or 70% of NAs).
+
+```{r}
+training <- training[, colSums(is.na(training))/dim(training)[1] < 0.7]
+testing <- testing[, colnames(testing) %in% colnames(training)]
+```
+
+Now we've 53 variables instead 160, which it's good in terms of performance, with none impact on the future model, because this variables was almost entirely empty or was irrelevant.
+
+# Constructing the Model #
+The first thing to do it's load all the needed library:
+```{r, results= 'hide'}
+library(caret, warn.conflicts= FALSE, quietly= TRUE)
+library(parallel, warn.conflicts= FALSE, quietly= TRUE)
+library(doParallel, warn.conflicts= FALSE, quietly= TRUE)
+cluster <- makeCluster(detectCores() - 1) # Convention to leave 1 core for OS
+registerDoParallel(cluster) # For parallelization purpose (see below)
+```
+
+## Selecting the Right Predictors ##
+Using the function `findcorrelation` from the `caret` package, we can find columns that can be removed because they are high correlated. In our testing set, we found:
+```{r}
+numCols <- sapply(training, is.numeric)
+corMatrix <- cor(training[, numCols])
+corPredictors <- findCorrelation(corMatrix, cutoff=0.75)
+colCorNames <- names(training[, numCols])[corPredictors]
+colCorNames
+```
+
+So we substract this columns for our training and testing sets:
+```{r}
+training <- training[, !(colnames(training) %in% colCorNames)]
+testing <- testing[, !(colnames(testing) %in% colCorNames)]
+```
+
+## Partitioning Data ##
+We've to partitioning the original training set into the training and the validation set for the model, so we can use the validation set to measure our model accuracy.
+```{r}
+inTrain <- createDataPartition(y = training$classe, p=0.7, list = FALSE)
+trData = training[ inTrain,]
+valData = training[-inTrain,]
+```
+
+## Cross Validation and Improve Performance ##
+Following [Len Greski's great instructions](https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md) on how to improve the performance of Random Forest method, we started setting the `trainControl` function:
+
+* We set `method = "cv"` to use cross validation and break the set into different k-folds.
+* We use `number = 10` to set the number of k-folds for cross validation.
+* To do improve performance, we set `allowParallel = TRUE` in order to use the CPU cores.
+
+```{r}
+fitControl <- trainControl(method = "cv", number = 10, allowParallel = TRUE)
+```
+
+## Training the Model ##
+We choosed to use two different method for training our model: Random Forest and Boosting, because both are good in classification problems like this. Also, we'll generate another model combining both models.
+```{r}
+# Training the random forest model
+modRF <- train(classe ~ ., method = "rf", data = trData, trControl = fitControl)
+modRF
+
+# Training the boosting model
+modGBM <- train(classe ~ ., method = "gbm", data = trData, trControl = fitControl)
+modGBM
+
+# Preparing the predictors for a combined model
+predRFtr <- predict(modRF, newdata = trData)
+predGBMtr <- predict(modGBM, newdata = trData)
+
+# Combining the models and training the resulting model using random forest
+combDFtr <- data.frame(pred1 = predRFtr, pred2 = predGBMtr, classe = trData$classe)
+combModelFit <- train(classe ~ ., method = "rf", data = combDFtr, trControl = fitControl)
+```
+
+## Validating and Choosing the Model ##
+We used the validation set to check the accuracy of every model, and we used the confusion matrix to show the results.
+```{r}
+# Validating the models using the validation set
+predRFval <- predict(modRF, newdata = valData)
+predGBMval <- predict(modRF, newdata = valData)
+combDFval <- data.frame(pred1 = predRFval, pred2 = predGBMval, classe = valData$classe)
+predCombval <- predict(combModelFit, newdata = combDFval)
+
+confusionMatrix(valData$classe, predRFval)
+confusionMatrix(valData$classe, predGBMval)
+confusionMatrix(valData$classe, predCombval)
+```
+
+We have that the accuracy for each model is:
+
+* Random Forest: `r confusionMatrix(valData$classe, predRFval)$overall['Accuracy']`
+* Gradient Boosting Machine: `r confusionMatrix(valData$classe, predGBMval)$overall['Accuracy']`
+* Combined Model: `r confusionMatrix(valData$classe, predCombval)$overall['Accuracy']`
+
+## Resolving the Testing Set ##
+With the model trained and validated, it's time to solve the testing data:
+```{r}
+predRF <- predict(modRF, newdata = testing)
+predGBM <- predict(modGBM, newdata = testing)
+combDF <- data.frame(pred1 = predRF, pred2 = predGBM)
+predComb <- predict(combModelFit, newdata = combDF)
+predComb
+```
+
+
+*(Sorry for my english, I hope you understand me anyway ;-)*
